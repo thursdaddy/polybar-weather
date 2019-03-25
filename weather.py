@@ -11,9 +11,10 @@ def arg_parser():
     args = parser.parse_args()
     return args
 
+# checks for config file, creates if missing
 def conf_checker():
     conf_path = os.environ.get("HOME") + "/.config/polybar/scripts/"
-    conf_file = conf_path + "py_weather.conf"
+    conf_file = conf_path + "py_scripts.conf"
     cache_file = conf_path + "py_weather.cache"
     if not os.path.exists(conf_path):
         os.makedirs(conf_path)
@@ -30,11 +31,9 @@ def conf_checker():
         logging.debug("exists: " + conf_path)
         pass
 
-
+# check age of cache file to determine if updated is needed
 def cache_age(cache_file):
     pass
-
-
 
 if __name__ == '__main__':
     args = arg_parser()
