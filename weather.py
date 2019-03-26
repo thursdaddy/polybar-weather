@@ -47,7 +47,7 @@ def cache_new(cache_file, cache_ageout):
         logging.debug("Ageout value: " + str(cache_ageout))
         logging.debug("Cache Age: " + str(cache_age))
         logging.debug("Conf Age: " + str(conf_age))
-        if (conf_age < cache_age):
+        if (conf_age < cache_age) or str(conf_age) == "0":
             logging.debug("Cache is new OR Conf has been updated!")
             return(False)
         if cache_age > int(cache_ageout):
@@ -125,5 +125,8 @@ while True:
     else: 
         forecast_url = get_location(zipcode) 
     forecast = get_forecast(forecast_url)
-    print(forecast)
     break
+
+# add args parser for forecast_type 
+# toggle forecast_type with -t flag
+# send 5day message with -n flag
