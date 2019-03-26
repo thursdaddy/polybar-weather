@@ -80,22 +80,28 @@ def get_location(zipcode):
     location = ("{0[0]},{0[1]}").format(t)
     return get_forecast_url(location)
 
-def get_forecast_url(location):
-    logging.debug("WEATHER.GOV ENTRY URL: https://api.weather.gov/points/%s" % location)    
-    weather_api = ("https://api.weather.gov/points/%s" % location)
-    response = requests.get(weather_api)
+def check_url_response(forecast_url):
+    response = requests.get(forecast_url)
     try:
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
         logging.debug(e)
         return False
-    get_forecast = requests.get(weather_api)
-    json = get_forecast.json()
-    forecast_url = json["properties"]["forecast"]
-    state = json["properties"]["relativeLocation"]["properties"]["state"]
-    city = json["properties"]["relativeLocation"]["properties"]["city"]
-    logging.debug("WEATHER.GOV FORECAST URL: " + forecast_url)    
-    logging.debug("WEATHER.GOV FORECAST LOCATION: " + city + "," + state)    
+    return forecast_url
+
+def get_forecast_url(location):
+    logging.debug("WEATHER.GOV ENTRY URL: https://api.weather.gov/points/%s" % location)    
+    forecast_url = ("https://api.weather.gov/points/%s" % location)
+    if check_url_response(forecast_url):
+        get_forecast = requests.get(forecast_url)
+        json = get_forecast.json()
+        forecast_url = json["properties"]["forecast"]
+        state = json["properties"]["relativeLocation"]["properties"]["state"]
+        city = json["properties"]["relativeLocation"]["properties"]["city"]
+        logging.debug("WEATHER.GOV FORECAST URL: " + forecast_url)    
+        logging.debug("WEATHER.GOV FORECAST LOCATION: " + city + "," + state)    
+        if check_url_response(forecast_url):
+            pass
     return forecast_url
 
 def get_forecast(forecast_url):
