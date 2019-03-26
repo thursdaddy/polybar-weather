@@ -7,7 +7,6 @@ import json
 import requests
 import os
 
-cp = ConfigParser()
 conf_path = os.environ.get("HOME") + "/.config/polybar/scripts/"
 conf_file = conf_path + "py_scripts.conf"
 cache_file = conf_path + "py_weather.cache"
@@ -30,21 +29,43 @@ def conf_creator():
             cp.write(configfile)
         logging.debug("WRITING: " + conf_file)
 
-def cache_check(cache_file):
+def cache_new(cache_file, cache_ageout):
+    import time
     if os.path.exists(cache_file):
-        print("cache exists")
-    else:
-        print("cache does not exist")
+        mod_time = int(os.stat(cache_file).st_mtime)
+        current_time = int(time.time())
+        cache_age = current_time - mod_time
+        logging.debug("Mod Time: " + str(mod_time))
+        logging.debug("Current Time: " + str(current_time))
+        logging.debug("Cache Age: " + str(cache_age))
+        if cache_age > int(cache_ageout):
+            logging.debug("Cache is old")
+            return(False)
+        else:
+            logging.debug("Cache is new")
+            return(False)
 
-def conf_parser(config):
-    cp.read(config)
+def conf_parser(config_file):
+    cp.read(config_file)
     config = cp._sections["weather"]
     return config
 
-def get_location():
+def get_geolocation():
+    logging.debug("---GEOLOC ENABLED---")    
     location = requests.get('https://ipinfo.io/json')
     json = location.json()
     location = json['loc']
+    return get_forecast_url(location)
+
+def get_location(zcode):
+    from uszipcode import SearchEngine
+    search = SearchEngine()
+    zipcode = search.by_zipcode(zcode)
+    zipcode = zipcode.to_dict()
+    lat = zipcode['lat']
+    lng = zipcode['lng']
+    t = lat,lng
+    location = ("{0[0]},{0[1]}").format(t)
     return get_forecast_url(location)
 
 def get_forecast_url(location):
@@ -55,23 +76,34 @@ def get_forecast_url(location):
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
         logging.debug(e)
-        return print("API DOWN")
+        return False
     get_forecast = requests.get(weather_api)
     json = get_forecast.json()
     forecast_url = json["properties"]["forecast"]
+    state = json["properties"]["relativeLocation"]["properties"]["state"]
+    city = json["properties"]["relativeLocation"]["properties"]["city"]
     logging.debug("WEATHER.GOV FORECAST URL: " + forecast_url)    
+    logging.debug("WEATHER.GOV FORECAST LOCATION: " + city + "," + state)    
     return forecast_url
 
+cp = ConfigParser()
 args = arg_parser()
 if args.verbose:
     logging.getLogger().setLevel(logging.DEBUG)
     logging.debug("---VERBOSE LOGGING ENABLED---")
 if not os.path.exists(conf_path):
         conf_creator()
-cache_check(cache_file)
+config = conf_parser(conf_file)
 
-# if cache exists..
-    # check age
-# parse config
-# else check geolocation
-# get weather URL
+while True:
+    use_geoloc = config['use_geoloc']
+    zcode = config['zipcode']
+    if cache_new(cache_file, config['cache_ageout']) == False:
+        if use_geoloc  == '1':
+            forecast_url = get_geolocation()
+            print(forecast_url)
+            break
+        else: 
+            forecast_url = get_location(zcode)
+            print(forecast_url)
+            break
