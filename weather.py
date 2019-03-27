@@ -14,6 +14,7 @@ cache_file = conf_path + "py_weather.cache"
 def arg_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", help="enable verbose logging", action="store_true")
+    parser.add_argument("-t", "--toggle-forecast-type", help="toggle between short and long forecast", action="store_true")
     args = parser.parse_args()
     return args
 
@@ -74,10 +75,8 @@ def get_location(zipcode):
     search = SearchEngine()
     zipcode = search.by_zipcode(zipcode)
     zipcode = zipcode.to_dict()
-    lat = zipcode['lat']
-    lng = zipcode['lng']
-    t = lat,lng
-    location = ("{0[0]},{0[1]}").format(t)
+    latlong = zipcode['lat'],zipcode['lng']
+    location = ("{0[0]},{0[1]}").format(latlong)
     return get_forecast_url(location)
 
 def check_url_response(forecast_url):
@@ -86,8 +85,9 @@ def check_url_response(forecast_url):
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
         logging.debug(e)
-        return False
-    return forecast_url
+        return(False)
+    else:
+        return forecast_url
 
 def get_forecast_url(location):
     logging.debug("WEATHER.GOV ENTRY URL: https://api.weather.gov/points/%s" % location)    
@@ -96,43 +96,57 @@ def get_forecast_url(location):
         get_forecast = requests.get(forecast_url)
         json = get_forecast.json()
         forecast_url = json["properties"]["forecast"]
-        state = json["properties"]["relativeLocation"]["properties"]["state"]
-        city = json["properties"]["relativeLocation"]["properties"]["city"]
         logging.debug("WEATHER.GOV FORECAST URL: " + forecast_url)    
-        logging.debug("WEATHER.GOV FORECAST LOCATION: " + city + "," + state)    
+        logging.debug("WEATHER.GOV FORECAST LOCATION: " + json["properties"]["relativeLocation"]["properties"]["city"] + ", " + json["properties"]["relativeLocation"]["properties"]["state"])    
         if check_url_response(forecast_url):
-            pass
-    return forecast_url
+            return forecast_url
+        else: 
+            return(False)
 
-def get_forecast(forecast_url):
+def toggle_forecast_type(forecast_type):
+    if forecast_type == "short":
+        cp.set('weather', 'forecast_type', 'long')
+    elif forecast_type == "long":
+        cp.set('weather', 'forecast_type', 'short')
+    with open(conf_file, 'w') as conf:
+        cp.write(conf)
 
-    return forecast_url
+
+def get_short_forecast(forecast_url):
+    print("short_forecast_url")
+
+def get_long_forecast(forecast_url):
+    print("long_forecast_url")
 
 cp = ConfigParser()
 args = arg_parser()
+
+## pre-checks
 if args.verbose:
     logging.getLogger().setLevel(logging.DEBUG)
     logging.debug("---VERBOSE LOGGING ENABLED---")
 if not os.path.exists(conf_path):
         conf_creator()
 
-
+## set varibles from config
 config = conf_parser(conf_file)
 use_geoloc = cp.getboolean('weather', 'use_geoloc')
-zipcode = config['zipcode']
-cache_ageout = config['cache_ageout']
 forecast_type = config['forecast_type']
+cache_ageout = config['cache_ageout']
+zipcode = config['zipcode']
 
 while True:
+    if args.toggle_forecast_type:
+        toggle_forecast_type(forecast_type)
     if cache_new(cache_file, cache_ageout):
         break
     if use_geoloc:
         forecast_url = get_geolocation()
     else: 
         forecast_url = get_location(zipcode) 
-    forecast = get_forecast(forecast_url)
+#   if arg.5day then get_5day_forecast()
+    if forecast_type == "short":
+        get_short_forecast(forecast_url)
+    elif forecast_type == "long":
+        get_long_forecast(forecast_url)
     break
-
-# add args parser for forecast_type 
-# toggle forecast_type with -t flag
-# send 5day message with -n flag
