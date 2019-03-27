@@ -66,7 +66,7 @@ def get_geolocation():
     location = requests.get('https://ipinfo.io/json')
     json = location.json()
     location = json['loc']
-    return get_forecast_url(location)
+    return forecast_get_url(location)
 
 def get_location(zipcode):
     from uszipcode import SearchEngine
@@ -75,9 +75,9 @@ def get_location(zipcode):
     zipcode = zipcode.to_dict()
     latlong = zipcode['lat'],zipcode['lng']
     location = ("{0[0]},{0[1]}").format(latlong)
-    return get_forecast_url(location)
+    return forecast_get_url(location)
 
-def check_url_response(forecast_url):
+def forecast_url_reponse(forecast_url):
     response = requests.get(forecast_url)
     try:
         response.raise_for_status()
@@ -87,21 +87,21 @@ def check_url_response(forecast_url):
     else:
         return forecast_url
 
-def get_forecast_url(location):
+def forecast_get_url(location):
     logging.debug("WEATHER.GOV ENTRY URL: https://api.weather.gov/points/%s" % location)    
     forecast_url = ("https://api.weather.gov/points/%s" % location)
-    if check_url_response(forecast_url):
+    if forecast_url_reponse(forecast_url):
         get_forecast = requests.get(forecast_url)
         json = get_forecast.json()
         forecast_url = json["properties"]["forecast"]
         logging.debug("WEATHER.GOV FORECAST URL: " + forecast_url)    
         logging.debug("WEATHER.GOV FORECAST LOCATION: " + json["properties"]["relativeLocation"]["properties"]["city"] + ", " + json["properties"]["relativeLocation"]["properties"]["state"])    
-        if check_url_response(forecast_url):
+        if forecast_url_reponse(forecast_url):
             return forecast_url
         else: 
             return(False)
 
-def toggle_forecast_type(forecast_type):
+def forecast_type_toggle(forecast_type):
     if forecast_type == "short":
         cp.set('weather', 'forecast_type', 'long')
     elif forecast_type == "long":
@@ -109,15 +109,29 @@ def toggle_forecast_type(forecast_type):
     with open(conf_file, 'w') as conf:
         cp.write(conf)
 
+def forecast_get_json(forecast_url):
+    forecast = requests.get(forecast_url)
+    json = forecast.json()
+    return json
 
-def get_short_forecast(forecast_url):
-    print("short_forecast_url")
+def forecast_long(forecast_json):
+    message = "long_forecast_message"
+    forecast_write_cache(message)
 
-def get_long_forecast(forecast_url):
-    print("long_forecast_url")
+def forecast_5day(forecast_json):
+    message = "5_forecast_message"
+    forecast_send_notify(message)
 
-def get_5day_forecast(forecast_url):
-    print("5_forecast_url")
+def forecast_short(forecast_json):
+    message = "short_forecast_message"
+    forecast_write_cache(message)
+
+def forecast_write_cache(message):
+    print(message)
+
+def forecast_send_notify(message):
+    import subprocess
+    subprocess.Popen(['notify-send', "-t", "100000", message])
 
 cp = ConfigParser()
 args = arg_parser()
@@ -143,20 +157,24 @@ if not os.path.exists(conf_path):
 
 while True:
     if args.toggle_forecast_type:
-        toggle_forecast_type(forecast_type)
+        forecast_type_toggle(forecast_type)
     if cache_new(cache_file, cache_ageout):
         break
     if use_geoloc:
         forecast_url = get_geolocation()
     else: 
         forecast_url = get_location(zipcode) 
-    if args.notify_5day_forecast:
-        get_5day_forecast(forecast_url)
-        break
-    if forecast_type == "short":
-        get_short_forecast(forecast_url)
-    elif forecast_type == "long":
-        get_long_forecast(forecast_url)
+    if args.notify_5day_forecast or forecast_type == "long":
+        forecast_json = forecast_get_json(forecast_url)
+        if args.notify_5day_forecast:
+            forecast_5day(forecast_json)
+            break
+        else:
+            forecast_long(forecast_json)
+            break 
+    elif forecast_type == "short":
+        forecast_json = forecast_get_json(forecast_url + "/hourly")
+        forecast_short(forecast_json)
     break
 
 ## TODO
