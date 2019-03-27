@@ -7,14 +7,12 @@ import json
 import requests
 import os
 
-conf_path = os.environ.get("HOME") + "/.config/polybar/scripts/"
-conf_file = conf_path + "py_scripts.conf"
-cache_file = conf_path + "py_weather.cache"
 
 def arg_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", help="enable verbose logging", action="store_true")
     parser.add_argument("-t", "--toggle-forecast-type", help="toggle between short and long forecast", action="store_true")
+    parser.add_argument("-n", "--notify-5day-forecast", help="send 5 day forecast to send-notfiy", action="store_true")
     args = parser.parse_args()
     return args
 
@@ -118,15 +116,16 @@ def get_short_forecast(forecast_url):
 def get_long_forecast(forecast_url):
     print("long_forecast_url")
 
+def get_5day_forecast(forecast_url):
+    print("5_forecast_url")
+
 cp = ConfigParser()
 args = arg_parser()
 
-## pre-checks
-if args.verbose:
-    logging.getLogger().setLevel(logging.DEBUG)
-    logging.debug("---VERBOSE LOGGING ENABLED---")
-if not os.path.exists(conf_path):
-        conf_creator()
+## config and cache files
+conf_path = os.environ.get("HOME") + "/.config/polybar/scripts/"
+conf_file = conf_path + "py_scripts.conf"
+cache_file = conf_path + "py_weather.cache"
 
 ## set varibles from config
 config = conf_parser(conf_file)
@@ -134,6 +133,13 @@ use_geoloc = cp.getboolean('weather', 'use_geoloc')
 forecast_type = config['forecast_type']
 cache_ageout = config['cache_ageout']
 zipcode = config['zipcode']
+
+## pre-checks
+if args.verbose:
+    logging.getLogger().setLevel(logging.DEBUG)
+    logging.debug("---VERBOSE LOGGING ENABLED---")
+if not os.path.exists(conf_path):
+        conf_creator()
 
 while True:
     if args.toggle_forecast_type:
@@ -144,9 +150,19 @@ while True:
         forecast_url = get_geolocation()
     else: 
         forecast_url = get_location(zipcode) 
-#   if arg.5day then get_5day_forecast()
+    if args.notify_5day_forecast:
+        get_5day_forecast(forecast_url)
+        break
     if forecast_type == "short":
         get_short_forecast(forecast_url)
     elif forecast_type == "long":
         get_long_forecast(forecast_url)
     break
+
+## TODO
+# create throttle for geolocation requests.. 
+# - cp.set zipcode
+# - check if conf age is older than 900
+# create icon selector
+# format message
+# write message
