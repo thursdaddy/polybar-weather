@@ -1,18 +1,21 @@
 #!/usr/local/bin/python3.6
 
-import argparse
 from configparser import ConfigParser
+from uszipcode import SearchEngine
+import subprocess
+import argparse
+import requests
 import logging
 import json
-import requests
+import time
 import os
-
+import re
 
 def arg_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", help="enable verbose logging", action="store_true")
-    parser.add_argument("-t", "--toggle-forecast-type", help="toggle between short and long forecast", action="store_true")
-    parser.add_argument("-n", "--notify-5day-forecast", help="send 5 day forecast to send-notfiy", action="store_true")
+    parser.add_argument("-t", "--toggle-fc-type", help="toggle between short and long forecast", action="store_true")
+    parser.add_argument("-n", "--notify-5day-fc", help="send 5 day forecast to send-notfiy", action="store_true")
     args = parser.parse_args()
     return args
 
@@ -20,7 +23,7 @@ def conf_creator():
     os.makedirs(conf_path)
     if not os.path.exists(conf_file):
         cp.add_section('weather')
-        cp.set('weather', 'use_geoloc', 'True')
+        cp.set('weather', 'use_geoloc', 'true')
         cp.set('weather', 'zipcode', '10001')
         cp.set('weather', 'cache_ageout', '900')
         cp.set('weather', 'forecast_type', 'short')
@@ -29,12 +32,13 @@ def conf_creator():
         logging.debug("WRITING: " + conf_file)
 
 def debug_config():
+    logging.getLogger().setLevel(logging.DEBUG)
     logging.debug("---START CONFIG---")
     logging.debug("conf_file: " + conf_file)
     logging.debug("cache_file: " + cache_file)
     logging.debug("zipcode: " + zipcode)
     logging.debug("cache_ageout: " + cache_ageout)
-    logging.debug("forecat_type: " + forecast_type)
+    logging.debug("forecat_type: " + fc_type)
     if use_geoloc:
         logging.debug("use_geoloc: true")
     else:
@@ -43,57 +47,54 @@ def debug_config():
 
 def conf_parser(config_file):
     cp.read(config_file)
-    config = cp._sections["weather"]
-    return config
+    return cp._sections["weather"]
 
-def forecast_location(use_geoloc, zipcode):
+def fc_location(zipcode, use_geoloc):
     if use_geoloc:
+        logging.debug("use_geoloc: true")
         location = requests.get('https://ipinfo.io/json')
         json = location.json()
         location = json['loc']
     else:
-        from uszipcode import SearchEngine
+        logging.debug("use_geoloc: true")
         search = SearchEngine()
-        zipcode = search.by_zipcode(zipcode)
-        zipcode = zipcode.to_dict()
-        latlong = zipcode['lat'],zipcode['lng']
+        zip = search.by_zipcode(zipcode).to_dict()
+        latlong = zip['lat'],zip['lng']
         location = ("{0[0]},{0[1]}").format(latlong)
-    return forecast_get_url(location)
+    return fc_get_url(location)
 
-def forecast_get_url(location):
+def fc_get_url(location):
     logging.debug("WEATHER.GOV ENTRY URL: https://api.weather.gov/points/%s" % location)    
-    forecast_url = ("https://api.weather.gov/points/%s" % location)
-    if forecast_url_reponse(forecast_url):
-        get_forecast = requests.get(forecast_url)
-        json = get_forecast.json()
-        forecast_url = json["properties"]["forecast"]
-        logging.debug("WEATHER.GOV FORECAST URL: " + forecast_url)    
-        logging.debug("WEATHER.GOV FORECAST LOCATION: " + json["properties"]["relativeLocation"]["properties"]["city"] + ", " + json["properties"]["relativeLocation"]["properties"]["state"])    
-        if forecast_url_reponse(forecast_url):
-            return forecast_url
-        else: 
-            return(False)
+    fc_url = ("https://api.weather.gov/points/{0}").format(location)
+    response = fc_url_response(fc_url)
+    json = response.json()
+    fc_url = json["properties"]["forecast"]
+    loc = json["properties"]["relativeLocation"]["properties"]["city"] + ", " + json["properties"]["relativeLocation"]["properties"]["state"]
+    logging.debug("WEATHER.GOV FORECAST URL: " + fc_url)    
+    logging.debug("WEATHER.GOV FORECAST LOCATION: " + loc)    
+    return [fc_url, loc];
 
-def forecast_url_reponse(forecast_url):
-    response = requests.get(forecast_url)
+def fc_url_response(fc_url):
+    logging.debug("TESTING URL : " + fc_url)
+    response = requests.get(fc_url)
     try:
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
         logging.debug(e)
-        return(False)
+        return False
     else:
-        return(True)
+        return response
 
-def forecast_type_toggle(forecast_type):
-    if forecast_type == "short":
+def fc_type_toggle(fc_type):
+    logging.debug("TOGGLE FORECAST TYPE: " + fc_type )
+    if fc_type == "short":
         cp.set('weather', 'forecast_type', 'long')
-    elif forecast_type == "long":
+    elif fc_type == "long":
         cp.set('weather', 'forecast_type', 'short')
     with open(conf_file, 'w') as conf:
         cp.write(conf)
 
-def forecast_refresh(cache_ageout):
-    import time
+def fc_refresh(cache_ageout):
     current_time = int(time.time())
     cache_mod = int(os.stat(cache_file).st_mtime)
     conf_mod = int(os.stat(conf_file).st_mtime)
@@ -109,32 +110,64 @@ def forecast_refresh(cache_ageout):
         logging.debug("Cache file is older than " + cache_ageout + "!! REFRESHING ")
     elif (current_time - cache_mod) < int(cache_ageout):
         logging.debug("Cache file is newer than " + cache_ageout + " EXITING")
-        return(False)
-    return(True)
+        return False
+    return True
 
-def forecast_get_json(forecast_url):
-    forecast = requests.get(forecast_url)
-    json = forecast.json()
-    return json
+def fc_get_icon(icon, isDaytime):
+    icon = re.findall(r"\/icons\/.*\/.*\/([^,\?]*)", icon)[0]
+    if isDaytime:
+        icons = { "skc": "", "few": "", "sct": "", "bkn": "", "ovc": "", "wind_skc": "", "wind_few": "", "wind_sct": "", "wind_bkn": "", "wind_ovc": "", "snow": "", "rain_snow": "", "rain_sleet": "", "snow_sleet": "", "fzra": "", "rain_fzra": "", "snow_fzra": "", "sleet": "", "rain": "", "rain_showers": "", "rain_showers_hi": "", "tsra": "", "tsra_sct": "", "tsra_hi": "", "tornado": "", "hurricane": "", "tropical_storm": "", "dust": "", "smoke": "", "haze": "", "hot": "", "cold": "", "blizzard": "", "fog": "" }
+    else:
+        icons = { "skc": "", "few": "", "sct": "", "bkn": "", "ovc": "", "wind_skc": "", "wind_few": "", "wind_sct": "", "wind_bkn": "", "wind_ovc": "", "snow": "", "rain_snow": "", "rain_sleet": "", "snow_sleet": "", "fzra": "", "rain_fzra": "", "snow_fzra": "", "sleet": "", "rain": "", "rain_showers": "", "rain_showers_hi": "", "tsra": "", "tsra_sct": "", "tsra_hi": "", "tornado": "", "hurricane": "", "tropical_storm": "", "dust": "", "smoke": "", "haze": "", "hot": "", "cold": "", "blizzard": "", "fog": "" }
+    return icons.get(icon, "?")
 
-def forecast_long(forecast_json):
-    message = "long_forecast_message"
-    forecast_write_cache(message)
+def fc_get_windicon(windSpeed, windDir):
+    windSpeed = re.match(r"^(\d+)", windSpeed)
+    speedIcons = { "0": "", "1": "", "2": "", "3": "", "4": "", "5": "", "6": "", "7": "", "8": "", "9": "", "10": "", "11": "", "12": "" }
+    dirIcons = { ("N", "NNE", "NNW"): "", "NE": "", ("E", "ENE", "ESE"): "", "SE": "", ("S", "SSE", "SSW"): "", "SW": "", ("W", "WSW", "WNW"): "", "NW": "" }
+    windSpeed = speedIcons.get(windSpeed.group(0))
+    windDir = next(v for k, v in dirIcons.items() if windDir in k)
+    opts = windDir,windSpeed
+    icon = "{0[0]} {0[1]}".format(opts)
+    return icon
 
-def forecast_5day(forecast_json):
-    message = "5_forecast_message"
-    forecast_send_notify(message)
+def fc_get_json(fc_url, fc_type):
+    if args.notify_5day_fc:
+        fc = requests.get(fc_url)
+    else:
+        fc = requests.get(fc_url + "/hourly")
+    return fc.json()
 
-def forecast_short(forecast_json):
-    message = "short_forecast_message"
-    forecast_write_cache(message)
+def fc_format(fcjson):
+    isDaytime = fcjson["properties"]["periods"][0]["isDaytime"]
+    temp = str(fcjson["properties"]["periods"][0]["temperature"]) + "°F"
+    windSpeed = fcjson["properties"]["periods"][0]["windSpeed"]
+    windDir = fcjson["properties"]["periods"][0]["windDirection"]
+    windIcon = fc_get_windicon(windSpeed, windDir)
+    desc = fcjson["properties"]["periods"][0]["shortForecast"]
+    icon = fc_get_icon(fcjson["properties"]["periods"][0]["icon"], isDaytime)
+    if fc_type == "short":
+        options = icon,temp
+        message = "{0[0]} {0[1]}".format(options)
+    if fc_type == "long":
+        options = icon,temp,windIcon,desc
+        message = "{0[0]} {0[1]} {0[2]} {0[3]}".format(options)
+    return message
 
-def forecast_write_cache(message):
-    print(message)
+def fc_write_cache(message):
+    logging.debug("Writing cache..")
+    with open(cache_file, 'w') as cache:
+        cache.write(message)
 
-def forecast_send_notify(message):
-    import subprocess
-    subprocess.Popen(['notify-send', "-t", "100000", message])
+def fc_5day(fcjson, loc):
+    isDaytime = fcjson["properties"]["periods"][0]["isDaytime"]
+    upcoming = fcjson["properties"]["periods"][0]["name"]
+    temp = str(fcjson["properties"]["periods"][0]["temperature"]) + "°F"
+    detailedForecast = fcjson["properties"]["periods"][0]["detailedForecast"]
+    icon = fc_get_icon(fcjson["properties"]["periods"][0]["icon"], isDaytime)
+    options = loc,upcoming, temp, icon, detailedForecast
+    forecast = "{0[0]}\n\n{0[1]} - {0[2]} {0[3]}\n{0[4]}".format(options)
+    subprocess.Popen(['notify-send', "-t", "100000", forecast])
 
 cp = ConfigParser()
 args = arg_parser()
@@ -147,42 +180,29 @@ cache_file = conf_path + "py_weather.cache"
 ## set varibles from config
 config = conf_parser(conf_file)
 use_geoloc = cp.getboolean('weather', 'use_geoloc')
-forecast_type = config['forecast_type']
+fc_type = config['forecast_type']
 cache_ageout = config['cache_ageout']
 zipcode = config['zipcode']
 
-## get conf_age and cache_age
-
 while True:
     if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
         debug_config()
     if not os.path.exists(conf_path):
         conf_creator()
-    if args.toggle_forecast_type:
-        forecast_type_toggle(forecast_type)
-    if forecast_refresh(cache_ageout):
+    if args.notify_5day_fc:
+        fc_url,loc = fc_location(zipcode, use_geoloc)
+        fcjson = fc_get_json(fc_url, fc_type)
+        fc_5day(fcjson, loc)
         break
-        forecast_url = forecast_location(zipcode, use_geoloc)
-    else:
-        break
-    if args.notify_5day_forecast or forecast_type == "long":
-        forecast_json = forecast_get_json(forecast_url)
-        if args.notify_5day_forecast:
-            forecast_5day(forecast_json)
-            break
-        else:
-            forecast_long(forecast_json)
-            break 
-    elif forecast_type == "short":
-        forecast_json = forecast_get_json(forecast_url + "/hourly")
-        forecast_short(forecast_json)
+    if args.toggle_fc_type:
+        fc_type_toggle(fc_type)
+    if fc_refresh(cache_ageout):
+        fc_url,loc = fc_location(zipcode, use_geoloc)
+        fcjson = fc_get_json(fc_url, fc_type)
+        forecast = fc_format(fcjson)
+        fc_write_cache(forecast)
+    with open(cache_file, 'r') as cache:
+        logging.debug("Reading cache..")
+        message = cache.read()
+    print(message)
     break
-
-## TODO
-# create throttle for geolocation requests.. 
-# - cp.set zipcode
-# - check if conf age is older than 900
-# create icon selector
-# format message
-# write message
